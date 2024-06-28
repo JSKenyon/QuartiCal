@@ -24,6 +24,7 @@ from quartical.gains.general.inversion import (invert_factory,
                                                inversion_buffer_factory)
 
 
+
 def get_identity_params(corr_mode):
 
     if corr_mode.literal_value in (2, 4):
@@ -201,12 +202,12 @@ def nb_tec_and_offset_solver_impl(
             corr_mode
         )
 
-        reference_params(
-            ms_inputs,
-            mapping_inputs,
-            chain_inputs,
-            meta_inputs
-        )
+        # reference_params(
+        #     ms_inputs,
+        #     mapping_inputs,
+        #     chain_inputs,
+        #     meta_inputs
+        # )
 
         # Call this one last time to ensure points flagged by finialize are
         # propagated (in the DI case).
@@ -820,10 +821,49 @@ def compute_jhwj_jhwr_elem_factory(corr_mode):
     return factories.qcjit(impl)
 
 
+# @njit(**JIT_OPTIONS)
+# def tec_and_offset_params_to_gains(
+#     params,
+#     gains,
+#     chan_freq,
+#     param_freq_map,
+#     rescaled=False
+# ):
+
+#     n_time, n_freq, n_ant, n_dir, n_corr = gains.shape
+
+#     cf_min = chan_freq.min()
+#     cf_max = chan_freq.max()
+#     bandwidth = cf_max - cf_min
+
+#     if rescaled:
+#         offset = np.log(cf_min/cf_max)
+#         numerator = bandwidth
+#     else:
+#         offset = np.log(cf_min/cf_max)/bandwidth
+#         numerator = 1.0
+
+#     for t in range(n_time):
+#         for f in range(n_freq):
+#             f_m = param_freq_map[f]
+#             coeff = 2 * np.pi * (numerator / chan_freq[f] + offset)
+#             for a in range(n_ant):
+#                 for d in range(n_dir):
+
+#                     g = gains[t, f, a, d]
+#                     p = params[t, f_m, a, d]
+
+#                     g[0] = np.exp(1j*(coeff*p[1] + p[0]))
+
+#                     if n_corr > 1:
+#                         g[-1] = np.exp(1j*(coeff*p[3] + p[2]))
+
+
 @njit(**JIT_OPTIONS)
 def tec_and_offset_params_to_gains(
     params,
     gains,
+    sel_ant,
     chan_freq,
     param_freq_map,
     rescaled=False
@@ -833,20 +873,39 @@ def tec_and_offset_params_to_gains(
 
     cf_min = chan_freq.min()
     cf_max = chan_freq.max()
+    cf_mid = (cf_min + cf_max) / 2
     bandwidth = cf_max - cf_min
 
-    if rescaled:
-        offset = np.log(cf_min/cf_max)
-        numerator = bandwidth
-    else:
-        offset = np.log(cf_min/cf_max)/bandwidth
-        numerator = 1.0
+    # if rescaled:
+    #     offset = np.log(cf_min/cf_max)
+    #     numerator = bandwidth
+    # else:
+    #     offset = np.log(cf_min/cf_max)/bandwidth
+    #     numerator = 1.0
 
     for t in range(n_time):
         for f in range(n_freq):
             f_m = param_freq_map[f]
-            coeff = 2 * np.pi * (numerator / chan_freq[f] + offset)
             for a in range(n_ant):
+                #dominant peak is delay
+                if sel_ant[a] in (1, 2):
+                    if rescaled:
+                        offset = 1.0
+                        denom = cf_mid
+                    else:
+                        offset = cf_mid
+                        denom = 1.0
+                    coeff = 2 * np.pi * (chan_freq[f] / denom - offset)
+                else:
+                    #dominant peak is tec
+                    if rescaled:
+                        offset = np.log(cf_min/cf_max)
+                        numerator = bandwidth
+                    else:
+                        offset = np.log(cf_min/cf_max)/bandwidth
+                        numerator = 1.0
+                    coeff = 2 * np.pi * (numerator / chan_freq[f] + offset)
+            
                 for d in range(n_dir):
 
                     g = gains[t, f, a, d]

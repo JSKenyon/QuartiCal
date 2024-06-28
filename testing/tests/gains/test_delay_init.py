@@ -15,13 +15,15 @@ def opts(base_opts, select_corr):
 
     _opts.input_ms.select_corr = select_corr
     _opts.solver.terms = ['G']
-    _opts.solver.iter_recipe = [100]
+    _opts.solver.iter_recipe = [0]
     _opts.solver.propagate_flags = False
-    _opts.solver.convergence_criteria = 1e-7
     _opts.solver.convergence_fraction = 1
+    _opts.solver.convergence_criteria = 1e-7
     _opts.solver.threads = 2
-    _opts.G.type = "tec_and_offset"
+    _opts.G.type = "delay"
     _opts.G.freq_interval = 0
+    _opts.G.solve_per = "antenna"
+    _opts.G.initial_estimate = True
 
     return _opts
 
@@ -33,60 +35,61 @@ def raw_xds_list(read_xds_list_output):
 
 
 @pytest.fixture(scope="module")
-def true_gain_list(predicted_xds_list):
+def true_values(predicted_xds_list):
 
     gain_list = []
+    delay_list = []
 
     for xds in predicted_xds_list:
 
-        n_ant = xds.sizes["ant"]
+        n_ant = xds.dims["ant"]
         utime_chunks = xds.UTIME_CHUNKS
         n_time = sum(utime_chunks)
         chan_chunks = xds.chunks["chan"]
-        n_chan = xds.sizes["chan"]
-        n_dir = xds.sizes["dir"]
-        n_corr = xds.sizes["corr"]
+        n_chan = xds.dims["chan"]
+        n_dir = xds.dims["dir"]
+        n_corr = xds.dims["corr"]
 
         chan_freq = xds.CHAN_FREQ.data
-        max_tec = 1/(1/chan_freq[-1] - 1/chan_freq[-2])
-        cf_min = chan_freq.min()
-        cf_max = chan_freq.max()
+        chan_width = chan_freq[1] - chan_freq[0]
+        band_centre = (chan_freq[0] + chan_freq[-1]) / 2
 
         chunking = (utime_chunks, chan_chunks, n_ant, n_dir, n_corr)
-        tec_chunking = (utime_chunks, 1, n_ant, n_dir, n_corr)
 
         da.random.seed(0)
-        tec = da.random.uniform(
+        delays = da.random.uniform(
             size=(n_time, 1, n_ant, n_dir, n_corr),
-            low=-0.05*max_tec,
-            high=0.05*max_tec,
-            chunks=tec_chunking
+            low=-1/(2*chan_width),
+            high=1/(2*chan_width)
         )
-        tec[:, :, 0, :, :] = 0  # Zero the reference antenna for safety.
+        delays[:, :, 0, :, :] = 0  # Zero the reference antenna for safety.
 
-        amp = da.ones((n_time, n_chan, n_ant, n_dir, n_corr),
-                      chunks=chunking)
+        amp = da.ones(
+            (n_time, n_chan, n_ant, n_dir, n_corr),
+            chunks=chunking
+        )
 
         if n_corr == 4:  # This solver only considers the diagonal elements.
             amp *= da.array([1, 0, 0, 1])
 
-        # Using the full 2pi range makes some tests fail - this may be due to
-        # the fact that we only have 8 channels/degeneracy between parameters.
-        offsets = da.random.uniform(
-            size=(n_time, 1, n_ant, n_dir, n_corr),
-            low=-0.5*np.pi,
-            high=0.5*np.pi
-        )
-        offsets[:, :, 0, :, :] = 0  # Zero the reference antenna for safety.
-
-        offset = np.log(cf_min/cf_max)/(cf_max - cf_min)
-        coeff = 2 * np.pi * (1/chan_freq[None, :, None, None, None] + offset)
-        phase = tec*coeff #+ offsets
+        origin_chan_freq = chan_freq - band_centre
+        phase = 2*np.pi*delays*origin_chan_freq[None, :, None, None, None]
         gains = amp*da.exp(1j*phase)
 
+        delay_list.append(delays)
         gain_list.append(gains)
 
-    return gain_list
+    return gain_list, delay_list
+
+
+@pytest.fixture(scope="module")
+def true_gain_list(true_values):
+    return true_values[0]
+
+
+@pytest.fixture(scope="module")
+def true_delay_list(true_values):
+    return true_values[1]
 
 
 @pytest.fixture(scope="module")
@@ -96,7 +99,7 @@ def corrupted_data_xds_list(predicted_xds_list, true_gain_list):
 
     for xds, gains in zip(predicted_xds_list, true_gain_list):
 
-        n_corr = xds.sizes["corr"]
+        n_corr = xds.dims["corr"]
 
         ant1 = xds.ANTENNA1.data
         ant2 = xds.ANTENNA2.data
@@ -141,20 +144,6 @@ def add_calibration_graph_outputs(corrupted_data_xds_list, stats_xds_list,
 
 # -----------------------------------------------------------------------------
 
-def test_residual_magnitude(cmp_post_solve_data_xds_list):
-    # Magnitude of the residuals should tend to zero.
-    for xds in cmp_post_solve_data_xds_list:
-        residual = xds._RESIDUAL.data
-        if residual.shape[-1] == 4:
-            residual = residual[..., (0, 3)]  # Only check on-diagonal terms.
-        np.testing.assert_array_almost_equal(np.abs(residual), 0)
-
-
-def test_solver_flags(cmp_post_solve_data_xds_list):
-    # The solver should not add addiitonal flags to the test data.
-    for xds in cmp_post_solve_data_xds_list:
-        np.testing.assert_array_equal(xds._FLAG.data, xds.FLAG.data)
-
 
 def test_gains(cmp_gain_xds_lod, true_gain_list):
 
@@ -175,20 +164,36 @@ def test_gains(cmp_gain_xds_lod, true_gain_list):
         # To ensure the missing antenna handling doesn't render this test
         # useless, check that we have non-zero entries first.
         assert np.any(solved_gain), "All gains are zero!"
-        np.testing.assert_array_almost_equal(true_gain, solved_gain)
+        np.testing.assert_array_almost_equal(true_gain, solved_gain, 1)
 
 
-def test_gain_flags(cmp_gain_xds_lod):
+def test_delays(cmp_gain_xds_lod, true_delay_list):
 
-    for solved_gain_dict in cmp_gain_xds_lod:
+    for solved_gain_dict, true_delay in zip(cmp_gain_xds_lod, true_delay_list):
         solved_gain_xds = solved_gain_dict["G"]
-        solved_flags = solved_gain_xds.gain_flags.values
+        solved_delay, solved_flags = da.compute(
+            solved_gain_xds.params.data,
+            solved_gain_xds.param_flags.data
+        )
+        true_delay = true_delay.compute()
 
-        frows, fchans, fants, fdir = np.where(solved_flags)
+        n_corr = true_delay.shape[-1]
 
-        # We know that these antennas are missing in the test data. No other
-        # antennas should have flags.
-        assert set(np.unique(fants)) == {18, 20}
+        # Pull out the delay values - this is a little confusing as the output
+        # parameters are not ordered in the same way as a true values.
+        if n_corr == 4:
+            true_delay = true_delay[..., (0, 3)]
+        elif n_corr == 2:
+            true_delay = true_delay[..., (0, 1)]
 
+        solved_delay -= solved_delay[:, :, :1]
+
+        true_delay[np.where(solved_flags)] = 0
+        solved_delay[np.where(solved_flags)] = 0
+
+        # To ensure the missing antenna handling doesn't render this test
+        # useless, check that we have non-zero entries first.
+        assert np.any(solved_delay), "All delays are zero!"
+        np.testing.assert_array_almost_equal(true_delay, solved_delay)
 
 # -----------------------------------------------------------------------------

@@ -146,10 +146,36 @@ class DelayAndOffset(ParameterizedGain):
                 delay_est_00 = fft_freq[delay_est_ind_00]
                 delay_est_00[~valid_ant] = 0
 
+
+                # path00 = "/home/russeeawon/testing/lofar_ms_1gc_solve/"
+                # path00 = "/home/russeeawon/testing/lofar_ms_1gc_solve_solint1/"
+                # path00 = "/home/russeeawon/testing/thesis_figures/expt1/"
+                # path00 = "/home/russeeawon/testing/thesis_figures/expt2/"
+                path00 = "/home/russeeawon/testing/thesis_figures/expt3/"
+
+                # path01 = "1gc_solve_inparts/"
+                # path01 = "1gc_solve_gtkb_parts/"
+                # path01 = "1gc_solve_gkb/"
+                # path01 = "1gc_solve_gktb_kest/"
+
+                # path01 = "1gc_solve_gktb_bfulljones/"
+                path01 = ""
+
+
+                path0 = path00+path01
+                
+
+                np.save(path0+"delayest00.npy", delay_est_00)
+                np.save(path0+"delay_fftarr.npy", fft_data)
+                np.save(path0+"delay_fft_freq.npy", fft_freq)
+
+
                 if n_corr > 1:
                     delay_est_ind_11 = np.argmax(fft_data[..., -1], axis=1)
                     delay_est_11 = fft_freq[delay_est_ind_11]
                     delay_est_11[~valid_ant] = 0
+                    np.save(path0+"delayest11.npy", delay_est_11)
+                
 
                 for t, p, q in zip(t_map[sel], a1[sel], a2[sel]):
                     if p == ref_ant:

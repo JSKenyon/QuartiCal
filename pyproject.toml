@@ -40,6 +40,7 @@ requests = ">=2.31.0, <=2.31.0"
 "ruamel.yaml" = ">=0.17.26, <=0.17.40"
 stimela = "^2.0rc17"  # Volatile - be less strict.
 tbump = ">=6.10.0, <=6.11.0"
+finufft = ">=2.1.0"
 
 [tool.poetry.scripts]
 goquartical = 'quartical.executor:execute'
