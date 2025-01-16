@@ -88,7 +88,7 @@ def help():
         print_help(HelpConfig)
     else:
         selection = help_arg.split("=")[-1]
-        selection = re.sub('[\[\] ]', "", selection)  # noqa
+        selection = re.sub(r'[\[\] ]', "", selection)
         selection = selection.split(",")
         print_help(HelpConfig, section_names=selection)
 

@@ -14,7 +14,8 @@ ms_inputs = namedtuple(
         "WEIGHT",
         "FLAG",
         "ROW_MAP",
-        "ROW_WEIGHTS"
+        "ROW_WEIGHTS",
+        "TIME"
     )
 )
 

@@ -357,6 +357,16 @@ solver:
       almost always be enabled so that data associated with diverging gains
       is properly flagged.
 
+  collapse_chain:
+    dtype: bool
+    default: True
+    info:
+      Determines whether the chain is collapsed into the minimum number of
+      terms inside the solver. This will typically increase memory footprint,
+      but may speed up calibration when utilising many gain terms. Set to false
+      to apply every term on-the-fly inside the solver (behaviour prior to
+      v0.2.6).
+
   robust:
     dtype: bool
     default: False

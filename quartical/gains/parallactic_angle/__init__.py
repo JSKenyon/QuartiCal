@@ -16,7 +16,7 @@ from quartical.data_handling.angles import _make_parangles
 ms_inputs = namedtuple(
     'ms_inputs', 
     ParameterizedGain.ms_inputs._fields + \
-        ('RECEPTOR_ANGLE', 'POSITION', 'TIME')
+        ('RECEPTOR_ANGLE', 'POSITION')
 )
 
 class ParallacticAngle(ParameterizedGain):
